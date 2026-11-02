@@ -12,7 +12,6 @@ import {
   ChevronUp,
   AlertTriangle,
   CheckCircle2,
-  X,
   Keyboard,
   Cpu,
   Lock,
