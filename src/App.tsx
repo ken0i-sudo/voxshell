@@ -181,8 +181,12 @@ export default function App() {
     email: "",
     subject: "Early Access & MVP Testing",
     message: "",
+    botcheck: "",
   });
-  const [contactSent, setContactSent] = useState<boolean>(false);
+  const [contactStatus, setContactStatus] = useState<
+    "IDLE" | "SENDING" | "SUCCESS" | "ERROR"
+  >("IDLE");
+  const [contactErrorMsg, setContactErrorMsg] = useState<string>("");
 
   const redCancelRef = useRef<HTMLButtonElement>(null);
 
@@ -281,16 +285,67 @@ export default function App() {
     setIsTypingMode(false);
   };
 
-  const handleContactSubmit = (e: React.FormEvent) => {
+  const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (
-      !contactData.name.trim() ||
-      !contactData.email.trim() ||
-      !contactData.message.trim()
-    ) {
+
+    // 1. Block bots that fill out the hidden honeypot input
+    if (contactData.botcheck) return;
+
+    // 2. Validate fields
+    const trimmedName = contactData.name.trim();
+    const trimmedEmail = contactData.email.trim();
+    const trimmedMessage = contactData.message.trim();
+
+    if (!trimmedName || !trimmedEmail || !trimmedMessage) {
       return;
     }
-    setContactSent(true);
+
+    const accessKey = import.meta.env.VITE_WEB3FORMS_ACCESS_KEY;
+    if (!accessKey || accessKey === "your_access_key_here") {
+      setContactStatus("ERROR");
+      setContactErrorMsg(
+        "Missing VITE_WEB3FORMS_ACCESS_KEY in your .env file.",
+      );
+      return;
+    }
+
+    setContactStatus("SENDING");
+    setContactErrorMsg("");
+
+    try {
+      const response = await fetch("https://api.web3forms.com/submit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          access_key: accessKey,
+          subject: `[VoxShell] ${contactData.subject} — from ${trimmedName}`,
+          from_name: "VoxShell Landing Page",
+          name: trimmedName,
+          email: trimmedEmail,
+          topic: contactData.subject,
+          message: trimmedMessage,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setContactStatus("SUCCESS");
+      } else {
+        setContactStatus("ERROR");
+        setContactErrorMsg(
+          result.message || "Failed to send message. Please try again.",
+        );
+      }
+    } catch {
+      setContactStatus("ERROR");
+      setContactErrorMsg(
+        "Network error while sending message. Please check your connection.",
+      );
+    }
   };
 
   return (
@@ -1448,7 +1503,7 @@ export default function App() {
             </div>
 
             <div className="md:col-span-7">
-              {contactSent ? (
+              {contactStatus === "SUCCESS" ? (
                 <div
                   className={`rounded-2xl border p-8 ${
                     isDark
@@ -1458,21 +1513,23 @@ export default function App() {
                 >
                   <CheckCircle2 className="h-5 w-5 text-[#1F3A2E] dark:text-[#6BB38B]" />
                   <h3 className="font-serif-vault mt-2.5 text-2xl">
-                    Message Logged.
+                    Message Delivered.
                   </h3>
                   <p className="mt-1 text-xs opacity-80">
-                    Thanks, {contactData.name}. Your inquiry under{" "}
-                    <strong>{contactData.subject}</strong> has been received.
+                    Thanks, {contactData.name}. Your email under{" "}
+                    <strong>{contactData.subject}</strong> has been sent
+                    directly to our inbox.
                   </p>
                   <button
                     type="button"
                     onClick={() => {
-                      setContactSent(false);
+                      setContactStatus("IDLE");
                       setContactData({
                         name: "",
                         email: "",
                         subject: "Early Access & MVP Testing",
                         message: "",
+                        botcheck: "",
                       });
                     }}
                     className="font-mono-vault mt-4 text-[11px] underline"
@@ -1489,6 +1546,23 @@ export default function App() {
                       : "border-[#D8D3C7] bg-[#E5E1D8]"
                   }`}
                 >
+                  {/* Hidden Honeypot Input for Anti-Spam */}
+                  <input
+                    type="checkbox"
+                    name="botcheck"
+                    checked={Boolean(contactData.botcheck)}
+                    onChange={(e) =>
+                      setContactData({
+                        ...contactData,
+                        botcheck: e.target.checked ? "true" : "",
+                      })
+                    }
+                    className="hidden"
+                    style={{ display: "none" }}
+                    tabIndex={-1}
+                    autoComplete="off"
+                  />
+
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <label className="font-mono-vault block text-[9.5px] tracking-wider uppercase opacity-70">
@@ -1498,6 +1572,7 @@ export default function App() {
                         type="text"
                         required
                         maxLength={80}
+                        disabled={contactStatus === "SENDING"}
                         value={contactData.name}
                         onChange={(e) =>
                           setContactData({
@@ -1506,7 +1581,7 @@ export default function App() {
                           })
                         }
                         placeholder="Your name"
-                        className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none ${
+                        className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none disabled:opacity-50 ${
                           isDark
                             ? "border-white/15 bg-[#111613] text-white"
                             : "border-[#CFC9BC] bg-[#F4F1EA] text-[#181816]"
@@ -1521,6 +1596,7 @@ export default function App() {
                         type="email"
                         required
                         maxLength={120}
+                        disabled={contactStatus === "SENDING"}
                         value={contactData.email}
                         onChange={(e) =>
                           setContactData({
@@ -1529,7 +1605,7 @@ export default function App() {
                           })
                         }
                         placeholder="you@example.com"
-                        className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none ${
+                        className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none disabled:opacity-50 ${
                           isDark
                             ? "border-white/15 bg-[#111613] text-white"
                             : "border-[#CFC9BC] bg-[#F4F1EA] text-[#181816]"
@@ -1543,6 +1619,7 @@ export default function App() {
                       Topic
                     </label>
                     <select
+                      disabled={contactStatus === "SENDING"}
                       value={contactData.subject}
                       onChange={(e) =>
                         setContactData({
@@ -1550,7 +1627,7 @@ export default function App() {
                           subject: e.target.value,
                         })
                       }
-                      className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none ${
+                      className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none disabled:opacity-50 ${
                         isDark
                           ? "border-white/15 bg-[#111613] text-white"
                           : "border-[#CFC9BC] bg-[#F4F1EA] text-[#181816]"
@@ -1571,6 +1648,7 @@ export default function App() {
                       rows={3}
                       required
                       maxLength={800}
+                      disabled={contactStatus === "SENDING"}
                       value={contactData.message}
                       onChange={(e) =>
                         setContactData({
@@ -1579,7 +1657,7 @@ export default function App() {
                         })
                       }
                       placeholder="Which OS are you using, and what terminal tasks do you want to automate by voice?"
-                      className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none ${
+                      className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-xs focus:outline-none disabled:opacity-50 ${
                         isDark
                           ? "border-white/15 bg-[#111613] text-white"
                           : "border-[#CFC9BC] bg-[#F4F1EA] text-[#181816]"
@@ -1587,13 +1665,23 @@ export default function App() {
                     />
                   </div>
 
+                  {contactStatus === "ERROR" && (
+                    <div className="flex items-center gap-2 rounded-lg border border-[#A3321B]/40 bg-[#A3321B]/10 px-3 py-2 text-[11px] text-[#A3321B] dark:text-rose-300">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span>{contactErrorMsg}</span>
+                    </div>
+                  )}
+
                   <div className="flex justify-end">
                     <button
                       type="submit"
-                      className="inline-flex items-center gap-2 rounded-full bg-[#1F3A2E] px-6 py-2.5 text-[11.5px] font-medium text-[#F4F1EA] transition hover:bg-[#162920]"
+                      disabled={contactStatus === "SENDING"}
+                      className="inline-flex items-center gap-2 rounded-full bg-[#1F3A2E] px-6 py-2.5 text-[11.5px] font-medium text-[#F4F1EA] transition hover:bg-[#162920] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Send className="h-3.5 w-3.5" />
-                      Send Message
+                      {contactStatus === "SENDING"
+                        ? "Sending..."
+                        : "Send Message"}
                     </button>
                   </div>
                 </form>
